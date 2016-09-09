@@ -1,0 +1,221 @@
+// Extraction in a line
+vector<string> extractVehicleInfo(string file_name) {
+   vector<string> lines;
+   string line;
+
+   ifstream infile(file_name.c_str());
+
+   while (std::getline(infile, line)) {
+       lines.push_back(line);
+   }
+
+   return lines;
+}
+
+// extract ground truth
+vector<pair<double, double> > extractVehicleGroundTruth(vector<string> lines) {
+
+   Dynamicmodel dynamicmodel;
+
+   vector<pair<double, double> > ground_truth;
+   vector<string> pre_tokens;
+   vector<string> cur_tokens;
+   
+   double v0 = 60.0; //kph
+   double v1 = 60.0; //kph
+   double t0 = 0.; // sec (default fix)
+   double t1 = 0.1;// sec (default fix)
+   int steer_angle;
+   double yaw = 0., x_shift = 0., y_shift = 0.;
+
+   int frame = 0;
+   while(1) {
+       if (frame >= 1) {
+           pre_tokens.clear();
+           cur_tokens.clear();
+
+           pre_tokens = str_split(lines[frame-1], ',');
+           cur_tokens = str_split(lines[frame], ',');
+
+           v0 = (atof(pre_tokens[3].c_str()) + atof(pre_tokens[4].c_str()))/2.0;
+           v1 = (atof(cur_tokens[3].c_str()) + atof(cur_tokens[4].c_str()))/2.0;
+           steer_angle = atof(cur_tokens[1].c_str());
+
+           dynamicmodel.Rotation_and_Shift(t0, t1, v0, v1, steer_angle / STEERING_RATIO, ground_truth[frame-1].first, yaw, x_shift, y_shift, DEGREE);
+       }
+       ground_truth.push_back(std::make_pair(yaw, y_shift));
+
+       frame++;
+
+       if(frame >= lines.size()) {
+           break;
+       }
+   }
+
+   return ground_truth;
+}
+
+// 
+double createRandomValue(double range) {
+   double rand_value = 0.0;
+
+   rand_value = (rand()/(float) RAND_MAX * (range * 2)) - range;
+
+   return round(rand_value, 6);;
+}
+
+std::vector<std::string> &str_split(const std::string &s, char delim, std::vector<std::string> &elems)
+{
+   std::stringstream ss(s);
+   std::string item;
+   while (std::getline(ss, item, delim)) {
+       elems.push_back(item);
+   }
+   return elems;
+}
+
+std::vector<std::string> str_split(const std::string &s, char delim) {
+   std::vector<std::string> elems;
+   str_split(s, delim, elems);
+   return elems;
+}
+extractVehicleInfo : vehicle info 파일 읽어와서 라인단위로 벡터에 저장 해논거
+extractVehicleGroundTruth : 읽어온 vehicle info를 가지고 ground truth 뽑아내느 메소드
+createRandomValue : 입력된 range에 따라 랜덤 밸류를 만드는 함수
+str_split, str_split : 문자열 split하는 함수
+< transformView header file>
+#include <opencv2/objdetect/objdetect.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+#include <stdio.h>
+#include <string>
+#include <iostream>
+#include <fstream>
+
+using namespace std;
+
+inline static double sqr(double x) {
+return x*x;
+}
+//int linreg(int n, double x[], double y[], double* b, double* m, double* r);
+//double calculate_y(double m, double b, double x);
+
+class TransformView {
+public:
+double Hplus[150];
+double Hneg[150];
+int vanishing_point;
+double translation_scale_factor;
+bool pre_processed;
+double m_neg[9];
+double m_plus[9];
+double b_plus[9];
+double b_neg[9];
+
+public:
+//public function
+/*
+Funtion : viewpoint_transformation
+Input :
+input_image = image to be transformed (Mat)
+rotation_angle = rotate image (range -16 ~ 16 degree)
+Y_shift = translation in lateral axis ( meter)
+
+Output : result = transformed image (Mat)
+*/
+TransformView();
+int viewpoint_transformation(cv::Mat input_image, double rotation_angle, double Y_shift, cv::Mat &result);
+
+private:
+bool Load_Homography_LUT(string file_name, double *H_LUT, double * m, double * b);
+bool set_Homography_rotation(cv::Mat & Hmatrix, double rotation_angle);
+int linreg(int n, const double x[], const double y[], double* m, double* b, double* r);
+double calculate_y(double m, double b, double x);
+};
+.....
+.
+.
+.
+.
+.
+.
+.
+<transformView cpp file>
+#include "caffe/util/transformView.hpp"
+
+TransformView::TransformView() {
+vanishing_point = 153;
+translation_scale_factor = 0.0056;
+pre_processed = true;
+}
+
+bool TransformView::Load_Homography_LUT(string file_name, double *H_LUT, double * m, double * b){
+std::ifstream file_H(file_name.c_str());
+int itr = 0;
+if (file_H.is_open()){
+
+while (!file_H.eof()){
+file_H >> H_LUT[itr++];
+}
+} else {
+std::cout << "could not find "<< file_name<<" for rotation LUT" << std::endl;
+return false;
+}
+
+file_H.close();
+//std::cout << "H start " << H_LUT[0] << " last " << H_LUT[itr - 2] << std::endl;
+
+for (int i = 0; i < 9; i++) {
+double x[17] = {};
+double y[17] = {};
+double r = 0;
+x[0] = 0;
+y[0] = 0;
+for (int rot = 1; rot <= 16; rot++) {
+x[rot] = rot;
+y[rot] = H_LUT[((rot - 1) * 9) + i];
+}
+
+linreg(17, x, y, &m[i], &b[i], &r);
+}
+
+return true;
+}
+bool TransformView::set_Homography_rotation(cv::Mat & Hmatrix, double rotation_angle){
+if (rotation_angle > 16 || rotation_angle< -16){
+/*std::cout << "angle out of range" << std::endl;
+for (int i = 0; i < 9; i++){
+Hmatrix.at<double>(i) = Hplus[((16 - 1) * 9) + i];
+}
+Hmatrix = Hmatrix.t();*/
+return false;
+}
+
+else if (rotation_angle >0){ // positive rotation (clockwise)
+
+/*for (int i = 0; i < 9; i++){
+Hmatrix.at<double>(i) = Hplus[((rotation_angle - 1) * 9)+i];
+}*/
+for (int i = 0; i < 9; i++){
+Hmatrix.at<double>(i) = calculate_y(m_plus[i], b_plus[i], rotation_angle);
+}
+
+Hmatrix = Hmatrix.t();
+}
+else if (rotation_angle <0){ // negative rotation (counter clockwise)
+/*for (int i = 0; i < 9; i++){
+Hmatrix.at<double>(i) = Hneg[(((-1*rotation_angle) - 1) * 9) + i];
+}*/
+for (int i = 0; i < 9; i++){
+Hmatrix.at<double>(i) = calculate_y(m_neg[i], b_neg[i], fabs(rotation_angle));
+}
+
+Hmatrix = Hmatrix.t();
+}
+return true;
+}
+int TransformView::viewpoint_transformation(cv::Mat input_image, double rotation_angle, double Y_shift, cv::Mat &result){
+printf(" [ viewpoint_transformation ] - rotation angle :: %lf || Y_shift :: %lf\n", rotation_angle, Y_shift);
+//cv::Mat image1;
+cv::Mat ori_channel[3];
+cv::Mat res_channel[3];

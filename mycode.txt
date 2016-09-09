@@ -1,0 +1,119 @@
+#include "main.h"
+
+int main(void)
+{
+	vc.open(PATH_VIDEO);
+	//input.open(PATH_DATA);
+
+	if(input.fail())
+	{
+		cout << ".txt open fail" << endl;
+		return -1;
+	}
+
+	if(vc.isOpened())
+	{
+		cout << ".avi open fail" << endl;
+		return -1;
+	}
+
+	extractVehicleInfo(PATH_DATA);
+
+	return 0;
+}
+
+// vehicle info 파일 읽어와서 라인단위로 벡터에 저장 해논거
+vector<string> extractVehicleInfo(string file_name) {
+   vector<string> lines;
+   string line;
+
+   ifstream infile(file_name.c_str());
+
+   while (std::getline(infile, line)) {
+       lines.push_back(line);
+   }
+
+   return lines;
+}
+
+
+/*
+// extract ground truth
+vector<pair<double, double> > extractVehicleGroundTruth(vector<string> lines) {
+
+   Dynamicmodel dynamicmodel;
+
+   vector<pair<double, double> > ground_truth;
+   vector<string> pre_tokens;
+   vector<string> cur_tokens;
+   
+   double v0 = 60.0; //kph
+   double v1 = 60.0; //kph
+   double t0 = 0.; // sec (default fix)
+   double t1 = 0.1;// sec (default fix)
+   int steer_angle;
+   double yaw = 0., x_shift = 0., y_shift = 0.;
+
+   int frame = 0;
+   while(1) {
+       if (frame >= 1) {
+           pre_tokens.clear();
+           cur_tokens.clear();
+
+           pre_tokens = str_split(lines[frame-1], ',');
+           cur_tokens = str_split(lines[frame], ',');
+
+           v0 = (atof(pre_tokens[3].c_str()) + atof(pre_tokens[4].c_str()))/2.0;
+           v1 = (atof(cur_tokens[3].c_str()) + atof(cur_tokens[4].c_str()))/2.0;
+           steer_angle = atof(cur_tokens[1].c_str());
+
+           dynamicmodel.Rotation_and_Shift(t0, t1, v0, v1, steer_angle / STEERING_RATIO, ground_truth[frame-1].first, yaw, x_shift, y_shift, DEGREE);
+       }
+       ground_truth.push_back(std::make_pair(yaw, y_shift));
+
+       frame++;
+
+       if(frame >= lines.size()) {
+           break;
+       }
+   }
+
+   return ground_truth;
+}
+
+vector<std::string> str_split(const std::string &s, char delim) {
+   std::vector<std::string> elems;
+   str_split(s, delim, elems);
+   return elems;
+}
+
+*/
+
+
+
+< header > 
+
+#include <fstream>
+#include <stdio.h>
+
+#include <opencv2\opencv.hpp>
+#include <opencv2\highgui\highgui.hpp>
+
+#include "functions.cpp"
+
+#define PATH_VIDEO "../vctxt/camera.avi"
+#define PATH_DATA "../vctxt/text.txt"
+
+using namespace cv;
+using namespace std;
+
+
+vector<string> extractVehicleInfo(string file_name);
+
+
+
+ifstream input;
+ofstream output;
+
+VideoCapture vc;
+
